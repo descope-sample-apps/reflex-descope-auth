@@ -5,13 +5,11 @@ load_dotenv()
 from reflex_descope_auth import DescopeAuthState
 
 class State(DescopeAuthState):
-    error_message: str = ""
-    
     @rx.event
     async def auth_redirect(self):
         yield DescopeAuthState.finalize_auth()
         if getattr(self, "error_message", None):
-            yield rx.redirect("/callback")
+            yield rx.redirect("/auth-error")
             return
         yield rx.redirect("/") 
 
@@ -65,7 +63,7 @@ def callback() -> rx.Component:
                 height="100vh",
                 justify="center",
             ),
-            rx.vstack(
+            rx.hstack(
                 rx.spinner(size="3"),
                 rx.heading("Processing login..."),
                 align="center",
@@ -74,6 +72,26 @@ def callback() -> rx.Component:
                 justify="center",
             ),
         ),
+    )
+    
+@rx.page(route="/auth-error")
+def auth_error() -> rx.Component:
+    return rx.center(
+        rx.vstack(
+            rx.heading("Login Failed", color_scheme="red"),
+            rx.text(State.error_message),
+            rx.button(
+                "Try Again",
+                on_click=DescopeAuthState.start_login,
+                color_scheme="blue",
+                radius="large",
+                size="4",
+            ),
+            align="center",
+            spacing="4",
+            height="100vh",
+            justify="center",
+        )
     )
     
 app = rx.App()
