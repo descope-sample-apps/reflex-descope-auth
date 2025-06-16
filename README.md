@@ -6,16 +6,16 @@ A lightweight plugin that integrates [Descope](https://www.descope.com/) authent
 
 ## 📚 Table of Contents
 
-- [Features](#features)
-- [Installation](#installation)
-- [Setup](#setup)
-- [Usage](#usage)
-- [Tips & Best Practices](#tips--best-practices)
-- [Environment Variables](#environment-variables)
-- [Error Handling](#error-handling)
-- [Sample App](#sample-app)
-- [Contributing](#contributing)
-- [License](#license)
+- [Features](#-features)
+- [Installation](#-installation)
+- [Setup](#%EF%B8%8F-setup)
+- [Usage](#-usage)
+- [Tips & Best Practices](#-tips--best-practices)
+- [Environment Variables](#-environment-variables)
+- [Error Handling](#-error-handling)
+- [Sample App](#-sample-app)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
