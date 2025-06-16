@@ -95,6 +95,17 @@ def index():
     )
 ```
 
+#### User Info Claims
+
+After successful login, `State.userinfo` provides these claims (if available):
+
+- `email`
+- `name`
+- `sub` (Descope user ID)
+- `picture` (profile image URL)
+
+See [above](#define-pages) for example usage.
+
 ---
 
 ## 💡 Tips & Best Practices
