@@ -1,0 +1,18 @@
+# Ignore Python cache and compiled files
+*.py[cod]
+__pycache__/
+
+# Ignore Reflex build/state folders
+.web/
+.states/
+*.db
+
+# Ignore local environment variables (if used)
+.env
+
+# Ignore local virtual environments
+.venv/
+venv/
+
+# Ignore external assets (if present)
+assets/external/
