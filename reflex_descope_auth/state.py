@@ -1,11 +1,15 @@
 import os
 import jwt
+from jwt.algorithms import RSAAlgorithm
 import time
 import reflex as rx
 from httpx import AsyncClient
 import requests
 from urllib.parse import urlparse, parse_qs
 from .utils import generate_code_challenge, generate_code_verifier
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Config from environment variables
 CLIENT_ID = os.getenv("DESCOPE_PROJECT_ID")
@@ -22,8 +26,6 @@ POST_LOGOUT_REDIRECT_URI = os.getenv("DESCOPE_LOGOUT_REDIRECT_URI", "http://loca
 # Descope OIDC enpoints (can be overridden by environment variables for custom deployments)
 AUTH_URL = os.getenv("DESCOPE_AUTH_URL", "https://api.descope.com/oauth2/v1/authorize")
 TOKEN_URL = os.getenv("DESCOPE_TOKEN_URL", "https://api.descope.com/oauth2/v1/token")
-USERINFO_URL = os.getenv("DESCOPE_USERINFO_URL", "https://api.descope.com/oauth2/v1/userinfo")
-LOGOUT_URL = os.getenv("DESCOPE_LOGOUT_URL", "https://api.descope.com/oauth2/v1/logout")
 JWKS_URL = os.getenv("DESCOPE_JWKS_URL", f"https://api.descope.com/{CLIENT_ID}/.well-known/jwks.json")
 
 # Secret for signing session token
@@ -56,14 +58,14 @@ def get_public_key(token):
 
     for key in jwks["keys"]:
         if key["kid"] == kid:
-            return jwt.algorithms.RSAAlgorithm.from_jwk(key)
+            return RSAAlgorithm.from_jwk(key)
 
-    raise ValueError(f"Public key not found for kid={kid}")
+    logger.error(f"Public key not found for kid={kid}")
 
 def verify_id_token(id_token: str, client_id: str):
     """Verify the ID token and return the payload."""
     if not id_token or id_token.strip() == "":
-        print("ID token is empty or invalid.")
+        logger.warning("ID token is empty or invalid.")
         return None
     
     public_key = get_public_key(id_token)
@@ -108,8 +110,8 @@ class DescopeAuthState(rx.State):
     """
     
     session_token: str = rx.Cookie("session_token", secure=True, path="/")
-    _code_verifier: str
-    _state: str
+    code_verifier: str = rx.Cookie("code_verifier", secure=True, path="/")
+    state: str = rx.Cookie("state", secure=True, path="/")
     error_message: str = ""
 
     @rx.event
@@ -118,14 +120,15 @@ class DescopeAuthState(rx.State):
         Initiate the login process by generating PKCE code verifier/challenge,
         setting state, and redirecting to the Descope authorization endpoint.
         """
-        self._code_verifier = generate_code_verifier()
-        code_challenge = generate_code_challenge(self._code_verifier)
-        self._state = generate_code_verifier()
+        self.error_message = "" # Clear any previous error messages
+        self.code_verifier = generate_code_verifier()
+        code_challenge = generate_code_challenge(self.code_verifier)
+        self.state = generate_code_verifier()
 
         auth_url = (
             f"{AUTH_URL}?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}"
             f"&scope=openid%20profile%20email&code_challenge={code_challenge}"
-            f"&code_challenge_method=S256&state={self._state}&flow={FLOW_ID}"
+            f"&code_challenge_method=S256&state={self.state}&flow={FLOW_ID}"
         )
 
         return rx.redirect(auth_url)
@@ -138,9 +141,8 @@ class DescopeAuthState(rx.State):
         Exchanges the authorization code for tokens, verifies ID token,
         and creates a session token for the user.
         
-        Raises:
-            ValueError: If required parameters are missing or state does not match.
         """
+        self.error_message = ""  # Clear any previous error messages
         if self.logged_in:
             return
         
@@ -150,12 +152,12 @@ class DescopeAuthState(rx.State):
         query_state = query.get("state", [None])[0]
 
         # Ensure all required parameters are present
-        if not all([code, query_state, self._state, self._code_verifier]):
+        if not all([code, query_state, self.state, self.code_verifier]):
             self.error_message = "Missing code, state, or verifier — skipping finalize_auth."
             return
         
         # Prevent CSRF by checking state
-        if query_state != self._state:
+        if query_state != self.state:
             self.error_message = "State mismatch — possible CSRF or replay attack."
             return
         
@@ -168,17 +170,21 @@ class DescopeAuthState(rx.State):
                         "code": code,
                         "redirect_uri": REDIRECT_URI,
                         "client_id": CLIENT_ID,
-                        "code_verifier": self._code_verifier,
+                        "code_verifier": self.code_verifier,
                     }
                 )
                 res.raise_for_status()
                 tokens = res.json()
 
                 # Verify ID token and extract claims
-                claims = verify_id_token(
-                    tokens["id_token"],
-                    client_id=CLIENT_ID
-                )
+                try:
+                    claims = verify_id_token(
+                        tokens["id_token"],
+                        client_id=CLIENT_ID
+                    )
+                except Exception as e:
+                    self.error_message = f"ID token verification failed: {e}"
+                    return
                 
                 # Use refresh token's exp as session expiration
                 refresh_claims = jwt.decode(tokens["refresh_token"], options={"verify_signature": False})
@@ -208,7 +214,7 @@ class DescopeAuthState(rx.State):
             payload = verify_token(self.session_token)
             return payload is not None
         except Exception as e:
-            print(f"Error checking logged_in: {e}")
+            logger.error(f"Error checking logged_in: {e}")
             return False
         
     @rx.var
@@ -230,7 +236,7 @@ class DescopeAuthState(rx.State):
                 }
             return {}
         except Exception as e:
-            print(f"Error fetching userinfo: {e}")
+            logger.error(f"Error fetching userinfo: {e}")
             return {}
         
     @rx.event
@@ -238,10 +244,10 @@ class DescopeAuthState(rx.State):
         """
         Log out the user by clearing session-related state and removing the session cookie.
         """
-        self._code_verifier = ""
-        self._state = ""
+        self.code_verifier = ""
+        self.state = ""
         self.session_token = ""
+        self.error_message = ""
         rx.remove_cookie("session_token")
-    
-    
-    
+        rx.remove_cookie("code_verifier")
+        rx.remove_cookie("state")
